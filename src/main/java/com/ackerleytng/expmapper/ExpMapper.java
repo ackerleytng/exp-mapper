@@ -1,10 +1,7 @@
 package com.ackerleytng.expmapper;
 
 import org.jboss.logging.Logger;
-import org.keycloak.models.ClientSessionContext;
-import org.keycloak.models.KeycloakSession;
-import org.keycloak.models.ProtocolMapperModel;
-import org.keycloak.models.UserSessionModel;
+import org.keycloak.models.*;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.mappers.AbstractOIDCProtocolMapper;
 import org.keycloak.protocol.oidc.mappers.OIDCAccessTokenMapper;
@@ -24,17 +21,26 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
     public static final List<ProviderConfigProperty> configProperties =
             new ArrayList<ProviderConfigProperty>();
     private static final String CONFIG_PARAM_EXTENSION = "extension";
+    private static final String CONFIG_PARAM_CLIENT = "client";
 
     static {
-        ProviderConfigProperty property;
-        property = new ProviderConfigProperty();
-        property.setName(CONFIG_PARAM_EXTENSION);
-        property.setLabel("Expiration time extension (days)");
-        property.setHelpText(
+        ProviderConfigProperty extensionProperty;
+        extensionProperty = new ProviderConfigProperty();
+        extensionProperty.setName(CONFIG_PARAM_EXTENSION);
+        extensionProperty.setLabel("Expiration time extension (days)");
+        extensionProperty.setHelpText(
                 "Expiration time extension to add to the original expiration time (exp) on a token. " +
                 "Defaults to 1 day if Integer.parseInt() throws an exception on parsing input");
-        property.setType(ProviderConfigProperty.STRING_TYPE);
-        configProperties.add(property);
+        extensionProperty.setType(ProviderConfigProperty.STRING_TYPE);
+        configProperties.add(extensionProperty);
+
+        ProviderConfigProperty clientProperty;
+        clientProperty = new ProviderConfigProperty();
+        clientProperty.setName(CONFIG_PARAM_CLIENT);
+        clientProperty.setLabel("Permitted client");
+        clientProperty.setHelpText("Only apply extension of expiration time for this client");
+        clientProperty.setType(ProviderConfigProperty.CLIENT_LIST_TYPE);
+        configProperties.add(clientProperty);
     }
 
     public static final String PROVIDER_ID = "oidc-exp-mapper";
@@ -71,7 +77,14 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
         }
     }
 
-    private IDToken extend(IDToken token, ProtocolMapperModel mappingModel) {
+    private IDToken extend(IDToken token, ClientModel client, ProtocolMapperModel mappingModel) {
+        String permittedClientName = mappingModel.getConfig().get(CONFIG_PARAM_CLIENT);
+
+        // Only extend expiry for tokens from the permitted client
+        if (!permittedClientName.equals(client.getName())) {
+            return token;
+        }
+
         int days = parseExtension(mappingModel.getConfig().get(CONFIG_PARAM_EXTENSION));
         long override = token.getExp() + days * 86400;
         token.exp(override);
@@ -86,7 +99,7 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
                                             KeycloakSession session,
                                             UserSessionModel userSession,
                                             ClientSessionContext clientSessionCtx) {
-        return (AccessToken) extend(token, mappingModel);
+        return (AccessToken) extend(token, session.getContext().getClient(), mappingModel);
     }
 
     @Override
@@ -95,10 +108,10 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
                                     KeycloakSession session,
                                     UserSessionModel userSession,
                                     ClientSessionContext clientSessionCtx) {
-        return extend(token, mappingModel);
+        return extend(token, session.getContext().getClient(), mappingModel);
     }
 
-    public static ProtocolMapperModel create(String name, String extension) {
+    public static ProtocolMapperModel create(String name, String extension, String client) {
         ProtocolMapperModel mapper = new ProtocolMapperModel();
         mapper.setName(name);
         mapper.setProtocolMapper(PROVIDER_ID);
@@ -106,9 +119,11 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
 
         Map<String, String> config = new HashMap<String, String>();
         config.put(CONFIG_PARAM_EXTENSION, extension);
+        config.put(CONFIG_PARAM_CLIENT, client);
         mapper.setConfig(config);
 
-        LOG.infof("Set config for ExpMapper, %s = %s", CONFIG_PARAM_EXTENSION, extension);
+        LOG.infof("ExpMapper (%s) %s = %s", name, CONFIG_PARAM_EXTENSION, extension);
+        LOG.infof("ExpMapper (%s) %s = %s", name, CONFIG_PARAM_CLIENT, client);
         return mapper;
     }
 }
