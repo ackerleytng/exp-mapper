@@ -13,8 +13,6 @@ import org.keycloak.provider.ProviderConfigProperty;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.IDToken;
 
-import static org.keycloak.common.util.Time.currentTime;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -25,15 +23,15 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
     private static final Logger LOG = Logger.getLogger(ExpMapper.class);
     public static final List<ProviderConfigProperty> configProperties =
             new ArrayList<ProviderConfigProperty>();
-    private static final String CONFIG_PARAM_VALIDITY = "validity";
+    private static final String CONFIG_PARAM_EXTENSION = "extension";
 
     static {
         ProviderConfigProperty property;
         property = new ProviderConfigProperty();
-        property.setName(CONFIG_PARAM_VALIDITY);
-        property.setLabel("Validity period (days)");
+        property.setName(CONFIG_PARAM_EXTENSION);
+        property.setLabel("Expiration time extension (days)");
         property.setHelpText(
-                "Validity period you want to use, to set expiration time (exp) on a token. " +
+                "Expiration time extension to add to the original expiration time (exp) on a token. " +
                 "Defaults to 1 day if Integer.parseInt() throws an exception on parsing input");
         property.setType(ProviderConfigProperty.STRING_TYPE);
         configProperties.add(property);
@@ -52,7 +50,7 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
 
     @Override
     public String getDisplayType() {
-        return "Overridden validity period (exp)";
+        return "Expiration time (exp) extension (days)";
     }
 
     @Override
@@ -62,15 +60,24 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
 
     @Override
     public String getHelpText() {
-        return "Override exp in token with new expiration time (now + validity period)";
+        return "Override exp in token with new expiration time (exp + extension)";
     }
 
-    private int parseValidity(String validity) {
+    private int parseExtension(String extension) {
         try {
-            return Integer.parseInt(validity);
+            return Integer.parseInt(extension);
         } catch (NumberFormatException e) {
             return 1;
         }
+    }
+
+    private IDToken extend(IDToken token, ProtocolMapperModel mappingModel) {
+        int days = parseExtension(mappingModel.getConfig().get(CONFIG_PARAM_EXTENSION));
+        long override = token.getExp() + days * 86400;
+        token.exp(override);
+
+        LOG.infof("Overrode exp to %d", override);
+        return token;
     }
 
     @Override
@@ -79,12 +86,7 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
                                             KeycloakSession session,
                                             UserSessionModel userSession,
                                             ClientSessionContext clientSessionCtx) {
-        int days = parseValidity(mappingModel.getConfig().get(CONFIG_PARAM_VALIDITY));
-        long override = currentTime() + days * 86400;
-        token.exp(override);
-
-        LOG.infof("Overrode exp to %d", override);
-        return token;
+        return (AccessToken) extend(token, mappingModel);
     }
 
     @Override
@@ -93,25 +95,20 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
                                     KeycloakSession session,
                                     UserSessionModel userSession,
                                     ClientSessionContext clientSessionCtx) {
-        int days = parseValidity(mappingModel.getConfig().get(CONFIG_PARAM_VALIDITY));
-        long override = currentTime() + days * 86400;
-        token.exp(override);
-
-        LOG.infof("Overrode exp to %d", override);
-        return token;
+        return extend(token, mappingModel);
     }
 
-    public static ProtocolMapperModel create(String name, String validity) {
+    public static ProtocolMapperModel create(String name, String extension) {
         ProtocolMapperModel mapper = new ProtocolMapperModel();
         mapper.setName(name);
         mapper.setProtocolMapper(PROVIDER_ID);
         mapper.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
 
         Map<String, String> config = new HashMap<String, String>();
-        config.put(CONFIG_PARAM_VALIDITY, validity);
+        config.put(CONFIG_PARAM_EXTENSION, extension);
         mapper.setConfig(config);
 
-        LOG.infof("Set config for ExpMapper, %s = %s", CONFIG_PARAM_VALIDITY, validity);
+        LOG.infof("Set config for ExpMapper, %s = %s", CONFIG_PARAM_EXTENSION, extension);
         return mapper;
     }
 }
