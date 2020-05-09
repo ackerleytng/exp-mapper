@@ -82,6 +82,7 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
 
         // Only extend expiry for tokens from the permitted client
         if (!permittedClientName.equals(client.getName())) {
+            LOG.infof("Client %s not permitted, needed %s", client.getName(), permittedClientName);
             return token;
         }
 
@@ -89,7 +90,7 @@ public class ExpMapper extends AbstractOIDCProtocolMapper implements OIDCAccessT
         long override = token.getExp() + days * 86400;
         token.exp(override);
 
-        LOG.infof("Overrode exp to %d", override);
+        LOG.infof("Overrode exp in %s to %d", token.getClass().getName(), override);
         return token;
     }
 
