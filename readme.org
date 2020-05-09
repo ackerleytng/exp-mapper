@@ -90,7 +90,7 @@ where they can configure options, like
 + the expiration time extension duration
 + which clients should be allowed to request this extension
 
-*** `keycloak-custom-protocol-mapper-example`
+*** ~keycloak-custom-protocol-mapper-example~
 
 Here's where I got the idea to build a custom protocol mapper:
 https://github.com/mschwartau/keycloak-custom-protocol-mapper-example
