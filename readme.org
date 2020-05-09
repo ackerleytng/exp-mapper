@@ -1,0 +1,113 @@
+* ~exp-mapper~
+
+~exp-mapper~ is a custom protocol mapper for keycloak that allows extension of expiry time (~exp~) in Access tokens and ID tokens.
+
+** Why do we need this?
+
+A long-lived access token is almost an antipattern in the OAuth world.
+
+I was seeking a solution that would allow
+
++ All resource servers can continue to rely only on one interface - the access
+  token - to manage authentication and authorization
+  + And the authorization server (Keycloak) can continue to manage the rights
+    of the user, centrally, as opposed to having another service managing the
+    authorization of API keys
++ Minimal work on the service that exchanges an API Key for an access token on
+  behalf of the resource servers, since the service can just take an API key,
+  look up the corresponding access token, and forward it to the resource
+  servers
+
+*** Other possible solutions
+
++ Use Keycloak's offline tokens. Offline tokens are actually refresh tokens, so
+  some service is going to have to exchange the offline token for an access
+  token before making the request
+  + The user can't do it, because the user would need to have client
+    credentials to exchange the offline token for an access token
+
+** Security considerations
+
++ ~exp-mapper~ will only extend expiry for the one configured client
++ ~exp-mapper~ is intended to be the only mapper in a special client scope,
+  which clients should only request when necessary
++ The special client scope should only be among the "Assigned Optional Client
+  Scopes" and not the "Default Optional Client Scopes" of a client, and only if
+  you want to permit ~exp~ extension for that client
+
+** Design
+
+The ~exp-mapper~ is a protocol mapper that does the following
+
+1. Look up the name of the client requesting the token exchange, if it is the
+   one configured in the ~exp-mapper~ options, proceed, otherwise just return
+   the original token unmodified.
+2. Extend the expiration time in the token (minted through whichever means that
+   the token was minted) by the configured extension period.
+3. Return the token with extended ~exp~
+
+** Usage
+
+1. Compile and package with ~mvn package~
+2. Copy ~target/expmapper-1.0-SNAPSHOT.jar~ into
+   ~/opt/jboss/keycloak/standalone/deployments/~ of your Keycloak
+   server. Keycloak should pick this up and load it without restarting.
+3. Create a special client scope, say ~exp-extension~, and configure
+   ~exp-mapper~ as the only mapper. This will allow ~exp-mapper~ to be easily
+   composed with other mappers with the client just having to request
+   ~exp-extension~ in the scope
+4. Configure ~exp-mapper~ with the only client that you expect will request
+   extended expiration times
+5. Add ~exp-extension~ as one of the "Assigned Optional Client Scopes" of the
+   client that you want to allow extended expiration times for
+
+** Similar solutions/inspiration/reference
+
+*** looorent's configurable token api
+
+looorent has a
+[project](https://github.com/looorent/keycloak-configurable-token-api) that
+attempts to solve this same problem, and that project was actually the original
+inspiration for this solution. (Thanks looorent!)
+
+I eventually didn't use looorent's plugin because I felt that it does too
+much - it creates a new token exchange endpoint and creates a new token based
+on certain semantics before setting a longer expiry.
+
+I didn't feel that maintaining the rest of the token creation code would be
+something that is safe (in terms of security) and so I found this solution
+which uses a keycloak mapper to do precisely one thing - extend the expiry time
+of a token, created using whatever (presumably safe) means that keycloak would
+be developing and maintaining.
+
+*** Using a javascript mapper instead of ~exp-mapper~
+
+I could have used a javascript mapper instead of ~exp-mapper~, written in Java.
+
+The benefit of writing it in Java is that now users get a nice page in Keycloak
+where they can configure options, like
+
++ the expiration time extension duration
++ which clients should be allowed to request this extension
+
+*** `keycloak-custom-protocol-mapper-example`
+
+Here's where I got the idea to build a custom protocol mapper:
+https://github.com/mschwartau/keycloak-custom-protocol-mapper-example
+
+** Weaknesses
+
+Using a long-lived access token means granting a fixed set of authorization to
+a user. This means that if the user's authorization parameters change at
+Keycloak, we have to either figure out how to revoke the issued long-lived
+access token, or wait till that token expires.
+
+This setup should only be used if you're sure that the authorization parameters
+of your users aren't going to change that often.
+
+** Notes
+
+This plugin makes use of ~org.keycloak:keycloak-server-spi-private~, which is
+an API private to keycloak and may change at any time. I think it should be
+pretty safe, since the methods in concern are like getters like ~getId()~,
+~getDisplayType()~, ~getDisplayCategory()~, ~getHelpText()~, etc.
